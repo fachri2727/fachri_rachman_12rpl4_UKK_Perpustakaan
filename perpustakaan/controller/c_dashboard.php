@@ -8,6 +8,7 @@ wajib_siswa();
 
 $siswa          = null;
 $pengajuan_aktif = [];
+$riwayat_saya    = [];
 $total_denda     = 0;
 
 try {
@@ -20,6 +21,9 @@ try {
 
     $m_peminjaman    = new m_peminjaman();
     $pengajuan_aktif = $m_peminjaman->aktif_siswa($id_siswa);
+
+    // Riwayat (sudah dikembalikan / ditolak): dimuat sampai 100 data terbaru supaya bisa dicari
+    $riwayat_saya    = $m_peminjaman->riwayat_siswa($id_siswa, 100);
 
     // Total denda berjalan dari semua buku yang sedang dipinjam
     foreach ($pengajuan_aktif as $pj) {
