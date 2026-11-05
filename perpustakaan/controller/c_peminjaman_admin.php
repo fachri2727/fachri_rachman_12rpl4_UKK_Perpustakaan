@@ -56,9 +56,9 @@ try {
         $daftar_menunggu         = $m_peminjaman->daftar_menunggu();
         $daftar_menunggu_kembali = $m_peminjaman->daftar_menunggu_kembali();
         $daftar_dipinjam         = $m_peminjaman->daftar_dipinjam();
-        // Dashboard menampilkan riwayat terbaru; ?riwayat=semua memuat lebih banyak
-        $batas_riwayat_db        = (($_GET['riwayat'] ?? '') === 'semua') ? 200 : 30;
-        $daftar_riwayat          = $m_peminjaman->daftar_riwayat($batas_riwayat_db);
+        // Riwayat dimuat sampai 200 data terbaru supaya pencarian bisa mencari semuanya.
+        // Yang tampil di awal tetap 10 terbaru (diatur di view); ?riwayat=semua menampilkan seluruhnya.
+        $daftar_riwayat          = $m_peminjaman->daftar_riwayat(200);
     }
 
 } catch (Exception $e) {
