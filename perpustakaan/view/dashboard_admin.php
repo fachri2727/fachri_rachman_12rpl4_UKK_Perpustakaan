@@ -5,9 +5,42 @@ include_once __DIR__ . '/../controller/c_peminjaman_admin.php';
 $aktif       = 'dashboard';
 $nama_admin  = $_SESSION['data']['nama_admin'] ?? ($_SESSION['data']['username'] ?? 'Admin');
 
-// Riwayat: 10 terbaru, atau semua kalau ada ?riwayat=semua
+// ---------- PENCARIAN (server-side, lewat ?cari_xxx=... di URL) ----------
+$cari_menunggu = ambil_cari('cari_menunggu');
+$cari_kembali  = ambil_cari('cari_kembali');
+$cari_dipinjam = ambil_cari('cari_dipinjam');
+$cari_riwayat  = ambil_cari('cari_riwayat');
+
+$hasil_menunggu = saring_data($daftar_menunggu, $cari_menunggu, function ($d) {
+    return implode(' ', [$d->nama_siswa, $d->nis, $d->judul_buku,
+        date('d M Y', strtotime($d->tgl_pinjam)), date('d M Y', strtotime($d->tgl_pengembalian))]);
+});
+
+$hasil_kembali = saring_data($daftar_menunggu_kembali, $cari_kembali, function ($d) {
+    return implode(' ', [$d->nama_siswa, $d->nis, $d->judul_buku,
+        date('d M Y', strtotime($d->tgl_pengembalian)),
+        !empty($d->tgl_ajukan_kembali) ? date('d M Y', strtotime($d->tgl_ajukan_kembali)) : '',
+        $d->hari_terlambat > 0 ? 'terlambat ' . (int) $d->hari_terlambat . ' hari' : 'tepat waktu']);
+});
+
+$hasil_dipinjam = saring_data($daftar_dipinjam, $cari_dipinjam, function ($d) {
+    return implode(' ', [$d->nama_siswa, $d->nis, $d->judul_buku,
+        date('d M Y', strtotime($d->tgl_pengembalian)),
+        $d->hari_terlambat > 0 ? 'terlambat ' . (int) $d->hari_terlambat . ' hari' : 'belum jatuh tempo']);
+});
+
+$hasil_riwayat = saring_data($daftar_riwayat, $cari_riwayat, function ($d) {
+    list($label) = label_status_admin($d->status);
+    return implode(' ', [$d->nama_siswa, $d->nis, $d->judul_buku,
+        date('d M Y', strtotime($d->tgl_pinjam)),
+        !empty($d->tgl_dikembalikan) ? date('d M Y', strtotime($d->tgl_dikembalikan)) : '',
+        $label,
+        $d->status === 'dikembalikan' ? ((int) $d->denda > 0 ? 'Rp' . (int) $d->denda : 'tidak ada') : '']);
+});
+
+// Riwayat: 10 terbaru, atau semua kalau ada ?riwayat=semua. Saat sedang mencari, semua hasil ditampilkan.
 $tampil_semua   = (($_GET['riwayat'] ?? '') === 'semua');
-$riwayat_tampil = $tampil_semua ? $daftar_riwayat : array_slice($daftar_riwayat, 0, 10);
+$riwayat_tampil = ($tampil_semua || $cari_riwayat !== '') ? $hasil_riwayat : array_slice($hasil_riwayat, 0, 10);
 
 // Angka ringkasan
 $jml_menunggu         = count($daftar_menunggu);
@@ -111,6 +144,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <h2>Menunggu Konfirmasi Peminjaman</h2>
         <span class="jumlah"><?= $jml_menunggu ?> pengajuan</span>
     </div>
+    <?= form_cari('dashboard_admin.php', 'cari_menunggu', 'Cari nama siswa, NIS, judul buku, atau tanggal', 'peminjaman', $cari_menunggu, count($hasil_menunggu), $jml_menunggu) ?>
     <div class="tabel-scroll">
     <table>
         <thead>
@@ -126,8 +160,8 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <tbody>
         <?php
         $no = 1;
-        if (!empty($daftar_menunggu)):
-        foreach ($daftar_menunggu as $data): ?>
+        if (!empty($hasil_menunggu)):
+        foreach ($hasil_menunggu as $data): ?>
             <tr>
                 <td><?= $no++ ?></td>
                 <td><?= e($data->nama_siswa) ?> <span class="nis">(<?= e($data->nis) ?>)</span></td>
@@ -141,7 +175,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
             </tr>
         <?php endforeach;
         else: ?>
-            <tr><td colspan="6" class="pesan-kosong">Tidak ada pengajuan yang menunggu konfirmasi</td></tr>
+            <tr><td colspan="6" class="pesan-kosong"><?= $cari_menunggu !== '' ? 'Tidak ada data yang cocok dengan pencarian' : 'Tidak ada pengajuan yang menunggu konfirmasi' ?></td></tr>
         <?php endif; ?>
         </tbody>
     </table>
@@ -152,6 +186,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <h2>Menunggu Konfirmasi Pengembalian</h2>
         <span class="jumlah"><?= $jml_menunggu_kembali ?> pengajuan &middot; denda dihitung sampai tanggal siswa mengajukan kembali</span>
     </div>
+    <?= form_cari('dashboard_admin.php', 'cari_kembali', 'Cari nama siswa, NIS, judul buku, atau tanggal', 'pengembalian', $cari_kembali, count($hasil_kembali), $jml_menunggu_kembali) ?>
     <div class="tabel-scroll">
     <table>
         <thead>
@@ -169,8 +204,8 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <tbody>
         <?php
         $no = 1;
-        if (!empty($daftar_menunggu_kembali)):
-        foreach ($daftar_menunggu_kembali as $data): ?>
+        if (!empty($hasil_kembali)):
+        foreach ($hasil_kembali as $data): ?>
             <tr>
                 <td><?= $no++ ?></td>
                 <td><?= e($data->nama_siswa) ?> <span class="nis">(<?= e($data->nis) ?>)</span></td>
@@ -192,7 +227,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
             </tr>
         <?php endforeach;
         else: ?>
-            <tr><td colspan="8" class="pesan-kosong">Tidak ada pengajuan pengembalian yang menunggu konfirmasi</td></tr>
+            <tr><td colspan="8" class="pesan-kosong"><?= $cari_kembali !== '' ? 'Tidak ada data yang cocok dengan pencarian' : 'Tidak ada pengajuan pengembalian yang menunggu konfirmasi' ?></td></tr>
         <?php endif; ?>
         </tbody>
     </table>
@@ -203,6 +238,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <h2>Sedang Dipinjam</h2>
         <span class="jumlah"><?= $jml_dipinjam ?> buku &middot; yang paling terlambat di atas</span>
     </div>
+    <?= form_cari('dashboard_admin.php', 'cari_dipinjam', 'Cari nama siswa, NIS, judul buku, atau "terlambat"', 'dipinjam', $cari_dipinjam, count($hasil_dipinjam), $jml_dipinjam) ?>
     <div class="tabel-scroll">
     <table>
         <thead>
@@ -219,8 +255,8 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
         <tbody>
         <?php
         $no = 1;
-        if (!empty($daftar_dipinjam)):
-        foreach ($daftar_dipinjam as $data): ?>
+        if (!empty($hasil_dipinjam)):
+        foreach ($hasil_dipinjam as $data): ?>
             <tr>
                 <td><?= $no++ ?></td>
                 <td><?= e($data->nama_siswa) ?> <span class="nis">(<?= e($data->nis) ?>)</span></td>
@@ -246,7 +282,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
             </tr>
         <?php endforeach;
         else: ?>
-            <tr><td colspan="7" class="pesan-kosong">Tidak ada buku yang sedang dipinjam</td></tr>
+            <tr><td colspan="7" class="pesan-kosong"><?= $cari_dipinjam !== '' ? 'Tidak ada data yang cocok dengan pencarian' : 'Tidak ada buku yang sedang dipinjam' ?></td></tr>
         <?php endif; ?>
         </tbody>
     </table>
@@ -256,11 +292,12 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
     <div class="bagian-judul" id="riwayat">
         <h2>Riwayat Peminjaman</h2>
         <?php if ($tampil_semua): ?>
-            <a href="dashboard_admin.php#riwayat">Tampilkan 10 terbaru</a>
-        <?php elseif (count($daftar_riwayat) > 10): ?>
-            <a href="dashboard_admin.php?riwayat=semua#riwayat">Lihat semua &rarr;</a>
+            <a href="<?= e(url_dashboard('dashboard_admin.php', ['riwayat' => ''], 'riwayat')) ?>">Tampilkan 10 terbaru</a>
+        <?php elseif ($cari_riwayat === '' && count($daftar_riwayat) > 10): ?>
+            <a href="<?= e(url_dashboard('dashboard_admin.php', ['riwayat' => 'semua'], 'riwayat')) ?>">Lihat semua &rarr;</a>
         <?php endif; ?>
     </div>
+    <?= form_cari('dashboard_admin.php', 'cari_riwayat', 'Cari nama siswa, NIS, judul buku, status, atau tanggal', 'riwayat', $cari_riwayat, count($hasil_riwayat), count($daftar_riwayat)) ?>
     <div class="tabel-scroll">
     <table>
         <thead>
@@ -299,7 +336,7 @@ function form_aksi_peminjaman($aksi, $id_peminjaman, $label, $kelas_tombol, $tan
             </tr>
         <?php endforeach;
         else: ?>
-            <tr><td colspan="7" class="pesan-kosong">Belum ada riwayat peminjaman</td></tr>
+            <tr><td colspan="7" class="pesan-kosong"><?= $cari_riwayat !== '' ? 'Tidak ada data yang cocok dengan pencarian' : 'Belum ada riwayat peminjaman' ?></td></tr>
         <?php endif; ?>
         </tbody>
     </table>
