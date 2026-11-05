@@ -13,6 +13,29 @@ function label_status_siswa($status)
     ];
     return $peta[$status] ?? [ucfirst($status), 'due'];
 }
+
+// ---------- PENCARIAN (server-side, lewat ?cari_xxx=... di URL) ----------
+$cari_pengajuan = ambil_cari('cari_pengajuan');
+$cari_riwayat   = ambil_cari('cari_riwayat');
+
+$hasil_pengajuan = saring_data($pengajuan_aktif, $cari_pengajuan, function ($p) {
+    list($label) = label_status_siswa($p->status);
+    return implode(' ', [$p->judul_buku, $p->pengarang, $label,
+        date('d M Y', strtotime($p->tgl_pinjam)), date('d M Y', strtotime($p->tgl_pengembalian)),
+        ($p->hari_terlambat ?? 0) > 0 ? 'terlambat ' . (int) $p->hari_terlambat . ' hari' : '']);
+});
+
+$hasil_riwayat = saring_data($riwayat_saya, $cari_riwayat, function ($r) {
+    list($label) = label_status_siswa($r->status);
+    return implode(' ', [$r->judul_buku, $r->pengarang, $label,
+        date('d M Y', strtotime($r->tgl_pinjam)),
+        !empty($r->tgl_dikembalikan) ? date('d M Y', strtotime($r->tgl_dikembalikan)) : '',
+        $r->status === 'dikembalikan' ? ((int) $r->denda > 0 ? 'Rp' . (int) $r->denda : 'tidak ada') : '']);
+});
+
+// Riwayat: 10 terbaru, atau semua kalau ada ?riwayat=semua. Saat sedang mencari, semua hasil ditampilkan.
+$tampil_semua_riwayat = (($_GET['riwayat'] ?? '') === 'semua');
+$riwayat_tampil       = ($tampil_semua_riwayat || $cari_riwayat !== '') ? $hasil_riwayat : array_slice($hasil_riwayat, 0, 10);
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -133,6 +156,22 @@ function label_status_siswa($status)
   .notice a{color:var(--leather);font-weight:600;}
   .denda{color:var(--bad);font-weight:600;}
 
+  /* Pencarian tabel */
+  .cari-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+  .cari-bar input[type="text"]{
+    flex:1;min-width:200px;max-width:360px;padding:9px 12px;
+    border:1px solid var(--line);border-radius:8px;
+    background:var(--cream);color:var(--ink);font:inherit;font-size:13.5px;
+  }
+  .cari-bar input[type="text"]:focus{outline:none;border-color:var(--leather);background:#fff;}
+  .cari-bar .btn{display:inline-block;padding:9px 16px;border:none;border-radius:8px;font:inherit;font-size:13px;font-weight:600;color:#fff;text-decoration:none;cursor:pointer;}
+  .cari-bar .btn-cari{background:var(--clay);}
+  .cari-bar .btn-batal{background:var(--ink-soft);}
+  .info-cari{margin:-6px 0 14px;font-size:12.5px;color:var(--ink-soft);}
+  .tabel-scroll{overflow-x:auto;}
+  .panel-head .sub-info{font-size:12.5px;}
+  .panel-head .sub-info a{color:var(--leather);text-decoration:none;font-weight:600;}
+
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
   thead th{text-align:left;font-weight:600;color:var(--ink-soft);font-size:11.5px;padding:0 10px 10px;border-bottom:1px solid var(--line);}
   tbody td{padding:12px 10px;border-bottom:1px solid #EEE2CE;vertical-align:middle;}
@@ -210,18 +249,20 @@ function label_status_siswa($status)
  
     <div class="grid-2">
       <div>
-        <div class="panel">
+        <div class="panel" id="pengajuan">
           <div class="panel-head">
             <h2>Pengajuan Peminjaman Aktif</h2>
             <a href="peminjaman_buku.php" style="font-size:12.5px;color:var(--leather);text-decoration:none;font-weight:600;">Pinjam buku &rarr;</a>
           </div>
           <?php if (!empty($pengajuan_aktif)): ?>
+          <?= form_cari('dashboard_siswa.php', 'cari_pengajuan', 'Cari judul, pengarang, status, atau tanggal', 'pengajuan', $cari_pengajuan, count($hasil_pengajuan), count($pengajuan_aktif)) ?>
+          <div class="tabel-scroll">
           <table>
             <thead>
               <tr><th>Judul</th><th>Tgl Pengajuan</th><th>Batas Kembali</th><th>Status</th><th>Denda</th></tr>
             </thead>
             <tbody>
-            <?php foreach ($pengajuan_aktif as $p): [$label, $kelas] = label_status_siswa($p->status); ?>
+            <?php foreach ($hasil_pengajuan as $p): [$label, $kelas] = label_status_siswa($p->status); ?>
               <tr>
                 <td>
                   <div class="book-title"><?= e($p->judul_buku) ?></div>
@@ -245,13 +286,68 @@ function label_status_siswa($status)
                 </td>
               </tr>
             <?php endforeach; ?>
+            <?php if (empty($hasil_pengajuan)): ?>
+              <tr><td colspan="5" class="empty-state">Tidak ada data yang cocok dengan pencarian</td></tr>
+            <?php endif; ?>
             </tbody>
           </table>
+          </div>
           <?php else: ?>
           <div class="empty-state">
             <div class="icon">📚</div>
             Belum ada buku yang sedang dipinjam.<br>
             <a href="peminjaman_buku.php" style="color:var(--leather);font-weight:600;">Ajukan peminjaman buku</a>
+          </div>
+          <?php endif; ?>
+        </div>
+
+        <div class="panel" id="riwayat">
+          <div class="panel-head">
+            <h2>Riwayat Peminjaman</h2>
+            <?php if ($tampil_semua_riwayat): ?>
+              <span class="sub-info"><a href="<?= e(url_dashboard('dashboard_siswa.php', ['riwayat' => ''], 'riwayat')) ?>">Tampilkan 10 terbaru</a></span>
+            <?php elseif ($cari_riwayat === '' && count($riwayat_saya) > 10): ?>
+              <span class="sub-info"><a href="<?= e(url_dashboard('dashboard_siswa.php', ['riwayat' => 'semua'], 'riwayat')) ?>">Lihat semua &rarr;</a></span>
+            <?php endif; ?>
+          </div>
+          <?php if (!empty($riwayat_saya)): ?>
+          <?= form_cari('dashboard_siswa.php', 'cari_riwayat', 'Cari judul, pengarang, status, atau tanggal', 'riwayat', $cari_riwayat, count($hasil_riwayat), count($riwayat_saya)) ?>
+          <div class="tabel-scroll">
+          <table>
+            <thead>
+              <tr><th>Judul</th><th>Tgl Pengajuan</th><th>Tgl Dikembalikan</th><th>Denda</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($riwayat_tampil as $r): [$label, $kelas] = label_status_siswa($r->status); ?>
+              <tr>
+                <td>
+                  <div class="book-title"><?= e($r->judul_buku) ?></div>
+                  <div class="book-sub"><?= e($r->pengarang) ?></div>
+                </td>
+                <td><?= date('d M Y', strtotime($r->tgl_pinjam)) ?></td>
+                <td><?= !empty($r->tgl_dikembalikan) ? date('d M Y', strtotime($r->tgl_dikembalikan)) : '&mdash;' ?></td>
+                <td>
+                  <?php if ($r->status !== 'dikembalikan'): ?>
+                    &mdash;
+                  <?php elseif ((int) $r->denda > 0): ?>
+                    <span class="denda">Rp<?= number_format((int) $r->denda, 0, ',', '.') ?></span>
+                  <?php else: ?>
+                    Tidak ada
+                  <?php endif; ?>
+                </td>
+                <td><span class="badge <?= $kelas ?>"><?= e($label) ?></span></td>
+              </tr>
+            <?php endforeach; ?>
+            <?php if (empty($riwayat_tampil)): ?>
+              <tr><td colspan="5" class="empty-state">Tidak ada data yang cocok dengan pencarian</td></tr>
+            <?php endif; ?>
+            </tbody>
+          </table>
+          </div>
+          <?php else: ?>
+          <div class="empty-state">
+            <div class="icon">🕘</div>
+            Belum ada riwayat peminjaman.
           </div>
           <?php endif; ?>
         </div>
